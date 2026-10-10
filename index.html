@@ -2399,7 +2399,7 @@ function syncMerge(r,force){
   for(const k in (r.sections||{})){const rs=r.sections[k];
     if(SYNC_APPLY[k]&&rs&&(force||(rs.t||0)>(m.t[k]||0))){SYNC_APPLY[k](JSON.parse(JSON.stringify(rs.data||{})));const loc=SYNC_SECT[k]()||{};m.h[k]=hsh(JSON.stringify(loc));
       m.t[k]=stab(loc)===stab(rs.data||{})?(rs.t||0):Date.now();changed[k]=1;}   // если у нас осталось что-то, чего нет у другого (ключи) — отдаём это обратно
-    else if(k==="cloud"&&rs&&rs.data){for(const x of ["geminiKey","groqKey"])if(!S.cloud[x]&&rs.data[x]){S.cloud[x]=rs.data[x];changed.cloud=1;}}}   // ключи подтягиваем всегда, если своих нет
+    else if(k==="cloud"&&rs&&rs.data){for(const x of ["geminiKey","groqKey"]){if(!S.cloud[x]&&rs.data[x]){S.cloud[x]=rs.data[x];changed.cloud=1;}else if(S.cloud[x]&&!rs.data[x])m.t.cloud=Date.now();}}}   // ключи подтягиваем всегда, если своих нет
   for(const k of CS_SYNC){const rv=(r.cs||{})[k];if(rv==null)continue;const lv=S.cs[k];
     const newer=typeof rv==="number"?(!lv||rv>lv):(dayNum(rv)>dayNum(lv));if(newer){S.cs[k]=rv;changed.cs=1;}}
   const tomb=Object.assign({},r.tomb||{});for(const id in m.tomb)tomb[id]=Math.max(tomb[id]||0,m.tomb[id]);m.tomb=tomb;
