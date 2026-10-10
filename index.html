@@ -1093,10 +1093,15 @@ function addMsg(m,idx){
       L.querySelector(".no").onclick=()=>{m.dismissed=(m.dismissed||[]).concat(t);save();L.remove();};
       el.appendChild(L);});
     const tools=document.createElement("div");tools.className="msg-tools";
-    tools.innerHTML=`<button class="mini" data-a="say">Озвучить</button><button class="mini" data-a="copy">Копировать</button><button class="mini" data-a="regen" title="Ответить по-другому">Ещё вариант</button><button class="mini" data-a="edit" title="Исправить мой вопрос (или стрелка ↑)">Изменить вопрос</button><button class="mini" data-a="like" title="Хороший ответ — Кроули будет учиться на таких">👍 Так держать</button><button class="mini" data-a="mem">Запомнить вывод</button><button class="mini" data-a="bad">Не то</button>`;
+    tools.innerHTML=`<button class="mini" data-a="say">Озвучить</button><button class="mini" data-a="copy">Копировать</button><button class="mini" data-a="regen" title="Ответить по-другому">Ещё вариант</button><button class="mini" data-a="edit" title="Исправить мой вопрос (или стрелка ↑)">Изменить вопрос</button><button class="mini" data-a="like" title="Хороший ответ — Кроули будет учиться на таких">👍 Так держать</button><button class="mini" data-a="mem">Запомнить вывод</button><button class="mini" data-a="bad">Не то</button>`+(/```html[\s\S]*<\/(html|body)>/i.test(m.content)?`<button class="mini" data-a="view">👁 Открыть страницу</button><button class="mini" data-a="savehtml">⬇ Скачать .html</button>`:"");
     tools.onclick=e=>{const a=e.target.dataset.a;if(!a)return;
       if(a==="say")speak(plain(clean),true);
       if(a==="copy")navigator.clipboard.writeText(clean).then(()=>toast("Скопировано"));
+      if(a==="view"||a==="savehtml"){const mm=m.content.match(/```html\s*\n([\s\S]*?)```/i);if(!mm){toast("Не нашёл код страницы");return;}
+        const blob=new Blob([mm[1]],{type:"text/html;charset=utf-8"});const u=URL.createObjectURL(blob);
+        if(a==="view"){const w=window.open(u,"_blank");if(!w)toast("Браузер не дал открыть окно — нажми «Скачать .html»");}
+        else{const l=document.createElement("a");l.href=u;l.download="kroули-страница.html".replace("kroули","crowley");document.body.appendChild(l);l.click();l.remove();toast("Сохранил в «Загрузки»");}
+        setTimeout(()=>URL.revokeObjectURL(u),60000);}
       if(a==="regen")regenerate();
       if(a==="edit")editLast();
       if(a==="like"){const i=S.chat.indexOf(m);const u=i>0?S.chat[i-1]:null;if(u&&u.role==="user"&&!/секретно/.test(m.via||"")){trainRecord(u.content.replace(/^\/[\p{L}\d_-]+\s*/u,""),clean,m.via||"",true);e.target.textContent="👍 Запомнил";e.target.disabled=true;avFlashDone();}}
@@ -1151,7 +1156,7 @@ async function genWith(p,{system,history,maxTok,onToken,imgs,signal}){
   if(!online){await check();if(!online)throw new Error("Ollama не запущена");}
   const model=imgs&&imgs.length&&S.settings.visionModel&&(window.__models||[]).includes(S.settings.visionModel)?S.settings.visionModel:S.settings.model;
   const r=await fetch(S.settings.host.replace(/\/$/,"")+"/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model,stream:true,keep_alive:(S.voice.on&&S.voice.engine==="crowley")?0:"10m",options:{num_ctx:+(S.settings.ctx||8192),num_predict:maxTok},messages:[{role:"system",content:system},...history]}),signal});
+    body:JSON.stringify({model,stream:true,keep_alive:(S.voice.on&&S.voice.engine==="crowley")?0:"10m",options:{num_ctx:+(S.settings.ctx||8192),num_predict:Math.min(maxTok,3500)},messages:[{role:"system",content:system},...history]}),signal});
   if(!r.ok)throw new Error("Ollama ответила ошибкой "+r.status+": "+(await r.text()).slice(0,200));
   const rd=r.body.getReader();const dec=new TextDecoder();let buf="";
   while(true){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
@@ -1193,7 +1198,7 @@ async function send(textOverride,opts){
   const bubble=addMsg(am);bubble.innerHTML='<span class="typing"><span></span><span></span><span></span></span><div class="genbar idle"><i></i></div><div class="genlbl">думает…</div>';
   const wantLong=/подробн|распиши|детальн|развёрнут|развернут|по шагам|пошагов/i.test(text);
   const lenLevel=wantLong?"long":(S.settings.len||"short");
-  const numPredict=Math.max(skill?LEN_TOK[skill.len||"m"]:0,{short:300,normal:650,long:1700}[lenLevel]);
+  const numPredict=Math.max(skill?(skill.maxTok||LEN_TOK[skill.len||"m"]):0,{short:300,normal:650,long:1700}[lenLevel]);
   let extra="";
   busy=true;abortCtl=new AbortController();const signal=abortCtl.signal;sendUI();avThinking=true;avApply();
   const history=S.chat.slice(-14).map(m=>{const o={role:m.role,content:m.content,secret:!!m.secret};if(m._imgs&&m._imgs.length)o.images=m._imgs;return o;});
@@ -1329,6 +1334,16 @@ CMS: пустые состояния, длинные заголовки не л�
  prompt:`Брейкпоинты Webflow: базовый десктоп, потом 991 (планшет), 767 (телефон горизонтально), 478 (телефон); вверх 1280/1440/1920 — по желанию. Стили наследуются сверху вниз.
 Правила: на телефоне одна колонка; основной текст ≥ 16 px; заголовки меньше примерно на 30–40%; отступы секций 96–120 → 48–64 px; главная кнопка на всю ширину; кликабельные зоны ≥ 44 px; тяжёлые анимации и видео упростить; меню — в бургер. Для плавных размеров — clamp().
 Говори конкретно: в каком брейкпоинте что поменять.`},
+{id:"site",name:"Сайт целиком",cmd:"сайт",len:"l",maxTok:9000,desc:"Готовая страница одним HTML-файлом: открыть, посмотреть, скачать",
+ trig:"(сделай|сгенерируй|напиши|собери|сверстай|создай|сваргань|набросай|накидай)[^.?!\\n]{0,40}(сайт|лендинг|landing|страниц|html|вёрстк|верстк)|код (для |всего )?(сайта|страницы|лендинга)|html.?код",
+ prompt:`Ты делаешь ГОТОВУЮ веб-страницу целиком — прямо в этом ответе, не «потом».
+Если не хватает главного (о чём сайт и для кого) — задай максимум 3 коротких вопроса и остановись. Если суть понятна — не спрашивай, а делай, недостающее придумай разумно и одной строкой скажи, что предположил.
+Формат ответа строго такой:
+1) одна фраза: что за страница;
+2) один блок \`\`\`html с ПОЛНЫМ документом: <!doctype html>, <meta charset="utf-8">, <meta name="viewport" content="width=device-width,initial-scale=1">, весь CSS в <style>, JS (если нужен) в <script>. Никаких внешних файлов, кроме шрифтов Google Fonts с кириллицей (Manrope, Inter, Unbounded, Playfair Display, Montserrat);
+3) две строки: что можно улучшить дальше.
+Качество как у сильного дизайнера: CSS-переменные для цветов и отступов, шаг отступов 8 px, clamp() для заголовков, grid/flex, адаптив до 360 px, видимый фокус, контраст по WCAG AA, плавные hover. Реальные осмысленные тексты по-русски, без «lorem ipsum». Картинки — градиенты, SVG или https://picsum.photos/… с alt.
+Не обрывай код на середине: лучше меньше секций, но документ целиком до </html>. Если просят правку уже сделанной страницы — снова выдай ВЕСЬ обновлённый документ.`},
 {id:"code",name:"CSS и код",cmd:"код",len:"m",desc:"CSS/HTML/JS для Webflow с пояснением, куда вставить",
  trig:"\\bcss\\b|\\bhtml\\b|\\bjs\\b|javascript|custom code|кастомный код|вставить код|скрипт для сайта|сделай css",
  prompt:`Пиши рабочий современный код: flex и grid, gap, clamp(), CSS-переменные. Без лишних библиотек.
