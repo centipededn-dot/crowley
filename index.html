@@ -1184,7 +1184,12 @@ async function send(textOverride,opts){
     if(/фон/i.test(text))setTimeout(async()=>{await HANDS.check();$("#wNobg").onclick();},50);else if(/фавикон|favicon/i.test(text))setTimeout(()=>$("#wFav").click(),50);
     else{const mw=text.match(/(\d{3,4})\s*(px|пикс)?/);if(mw)$("#wMax").value=mw[1];setTimeout(()=>$("#wGo").click(),50);}
     toast("Открыл Мастерскую");return;}
-  const pick=pickSkill(text);const skill=pick.skill;
+  const pick=pickSkill(text);let skill=pick.skill;
+  // правки к сайту, который Кроули только что выдал → снова навык «Сайт», без нового исследования
+  const lastA=[...S.chat].reverse().find(m=>m.role==="assistant"&&!m.care&&!/забот|фокус|утро|напоминание/.test(m.via||""));
+  const editLike=/(помен|измен|замен|убер|убр|добав|исправ|увелич|уменьш|передел|сдела|правк|не нрав|хочу|давай|верни|сдвин|подвин|покрас|цвет|шрифт|отступ|кнопк|секци|блок|текст|заголов|меню|фон|картин|ревью|^\s*\d+[.)])/i.test(text);
+  const siteRevise=!!(lastA&&/```html[\s\S]*<\/html>/i.test(lastA.content||"")&&(!skill||skill.id==="site")&&editLike&&!/(нов(ый|ую)|другой|ещё один) (сайт|лендинг)|с нуля/i.test(text));
+  if(siteRevise)skill=skillList().find(x=>x.id==="site")||skill;
   if(text==="/"||(/^\/\S+$/.test(text)&&!skill)){go("skills");input.value="";autosize();return;}
   if(!online)await check();
   if(!online&&!cloudReady()){toast("Модель недоступна, смотри подсказку сверху");return;}
@@ -1206,6 +1211,12 @@ async function send(textOverride,opts){
   let triedCloud=false;
   try{
     if(skill&&skill.web){const w=await webContext(skill,pick.text||text,s=>{bubble.innerHTML='<span class="muted">'+esc(s)+'</span>';});extra=w.ctx;am.sources=w.sources;}
+    if(skill&&skill.id==="site"){
+      if(siteRevise)extra="Это ПРАВКИ к сайту из твоего прошлого ответа. Не начинай заново и не исследуй: возьми тот документ, внеси ВСЕ правки, выдай ВЕСЬ обновлённый документ целиком, а перед кодом списком перечисли, что именно изменил.";
+      else{const prog=(t,pc)=>{bubble.innerHTML='<span class="muted">'+esc(t)+'</span><div class="genbar"><i style="width:'+pc+'%"></i></div>';};
+        try{const w=await siteResearch(pick.text||text,history,prog,signal);extra=w.ctx;am.sources=w.sources;}
+        catch(e){if(signal.aborted)throw e;extra="(Исследование в интернете сейчас не получилось: "+(e.message||e)+". Опирайся на свои знания лучших сайтов этой сферы и гайдов по лендингам.)";}}
+    }
     const rt=route(text,imgs,skill,history,screenImg);let lastErr=null;
     if(rt.secret){um.secret=true;am.secret=true;}
     const onToken=t=>{const near=msgsEl.scrollHeight-msgsEl.scrollTop-msgsEl.clientHeight<120;am.content+=t;const pc=Math.min(96,Math.round(am.content.length/(numPredict*3.2)*100));const w=am.content.trim().split(/\s+/).length;bubble.innerHTML=md(splitLearn(am.content).clean)+`<div class="genbar" title="Кроули пишет ответ"><i style="width:${pc}%"></i></div><div class="genlbl">пишет… ${w} ${plural(w,'слово','слова','слов')}</div>`;if(near)msgsEl.scrollTop=msgsEl.scrollHeight;};
@@ -1335,23 +1346,23 @@ CMS: пустые состояния, длинные заголовки не л�
  prompt:`Брейкпоинты Webflow: базовый десктоп, потом 991 (планшет), 767 (телефон горизонтально), 478 (телефон); вверх 1280/1440/1920 — по желанию. Стили наследуются сверху вниз.
 Правила: на телефоне одна колонка; основной текст ≥ 16 px; заголовки меньше примерно на 30–40%; отступы секций 96–120 → 48–64 px; главная кнопка на всю ширину; кликабельные зоны ≥ 44 px; тяжёлые анимации и видео упростить; меню — в бургер. Для плавных размеров — clamp().
 Говори конкретно: в каком брейкпоинте что поменять.`},
-{id:"site",name:"Сайт целиком",cmd:"сайт",len:"l",maxTok:9000,cloudFirst:true,desc:"Готовая страница одним HTML-файлом — по описанию или точно по макету",
- trig:"(сделай|сгенерируй|напиши|собери|сверстай|создай|сваргань|набросай|накидай|перенеси|переведи)[^.?!\\n]{0,40}(сайт|лендинг|landing|страниц|html|вёрстк|верстк|в код)|код (для |всего )?(сайта|страницы|лендинга|макета)|html.?код|сверстай|по макету",
- prompt:`Ты делаешь ГОТОВУЮ веб-страницу целиком — прямо в этом ответе, не «потом».
+{id:"site",name:"Сайт целиком",cmd:"сайт",len:"l",maxTok:16000,cloudFirst:true,desc:"Исследует похожие сайты и гайды, потом делает полностью готовый сайт на ревью; правки — сообщением",
+ trig:"(сделай|сгенерируй|напиши|собери|сверстай|создай|сваргань|набросай|накидай|перенеси|переведи)[^.?!\\n]{0,40}(сайт|лендинг|landing|страниц|html|вёрстк|верстк|в код)|код (для |всего )?(сайта|страницы|лендинга|макета)|html.?код|сверстай|по макету|готовый сайт",
+ prompt:`Ты делаешь ПОЛНОСТЬЮ ГОТОВЫЙ сайт на ревью — прямо в этом ответе, не «потом».
 
-ЕСЛИ ПРИЛОЖЕН МАКЕТ (картинка) — твоя задача ПОВТОРИТЬ ЕГО ТОЧНО, а не придумать свой сайт:
-- название бренда, пункты меню, кнопки и все тексты — слово в слово как на картинке (даже «Lorem ipsum» и английский оставь, если так на макете). Никогда не меняй бренд и не придумывай свои разделы;
-- шрифт подбирай по виду: широкий геометрический (как PAYDOME) → Michroma или Orbitron; узкий гротеск → Inter/Manrope; с засечками → Playfair Display;
-- те же цвета (пиши hex по картинке), то же расположение: что слева/справа/по центру, что крупно, что мелко; огромный заголовок — через clamp() почти на всю ширину;
-- фон: повтори градиент/виньетку; 3D-объект или фото — нарисуй похожее (SVG или canvas, например вращающаяся каркасная фигура нужного цвета) или оставь блок-заглушку <div class="art"> с подписью, куда вставить картинку;
-- сначала коротко (5–8 строк) перечисли, что видишь на макете сверху вниз: элементы, тексты, шрифт, цвета, выравнивание. Потом код. Это обязательно.
+Откуда брать содержание:
+- концепция, название, аудитория и идеи — из вашей переписки выше и её памяти. Используй именно её название и концепцию, не выдумывай другой бренд;
+- если приложен макет (обычно это главный экран) — это ОРИЕНТИР СТИЛЯ: настроение, шрифт, палитра, композиция. Главный экран сделай близко к нему (по смыслу и настроению), а все остальные секции придумай сама в том же стиле. Точь-в-точь копировать не нужно, тексты на макете-«рыбе» (Lorem ipsum) замени настоящими;
+- исследование ниже (если есть) — бери лучшие приёмы аналогов и гайдов.
+Если концепции нет совсем и непонятно, о чём сайт, — задай до 3 вопросов и остановись.
 
-ЕСЛИ МАКЕТА НЕТ: если не хватает главного (о чём сайт и для кого) — задай максимум 3 коротких вопроса и остановись. Если суть понятна — делай, недостающее придумай и одной строкой скажи, что предположил. Тексты — осмысленные, по-русски.
+Сайт должен быть ПОЛНЫМ, а не одним экраном: шапка с меню и якорями; главный экран; проблема/ценность; как это работает (шаги); возможности/преимущества; цифры или доверие (кейсы, отзывы, логотипы, безопасность — что уместно); тарифы или формат сотрудничества (если уместно); FAQ (4–6 вопросов); финальный призыв с формой или кнопкой; подвал. Тексты — осмысленные, конкретные, на языке проекта (по умолчанию русский), без «lorem ipsum».
 
-Код — один блок \`\`\`html с ПОЛНЫМ документом: <!doctype html>, <meta charset="utf-8">, <meta name="viewport" content="width=device-width,initial-scale=1">, весь CSS в <style>, JS в <script>. Внешнее — только Google Fonts.
-Обязательно: CSS-переменные для цветов, шаг отступов 8 px, clamp() для заголовков, grid/flex, НЕ задавай body height:100vh и не центрируй весь body флексом (страница должна прокручиваться), ширина контейнера max-width, а не width; адаптив до 360 px; видимый фокус; hover на кнопках и ссылках; ссылки меню — настоящие <a href="#...">.
-Не обрывай код: лучше меньше секций, но документ целиком до </html>. Правка → снова ВЕСЬ обновлённый документ.
-В конце — 2 строки: что улучшить дальше.`},
+Код — один блок \`\`\`html с ПОЛНЫМ документом: <!doctype html>, <meta charset="utf-8">, <meta name="viewport" content="width=device-width,initial-scale=1">, весь CSS в <style>, JS в <script>; внешнее — только Google Fonts с кириллицей (широкий геометрический — Michroma/Unbounded/Orbitron, гротеск — Manrope/Inter, с засечками — Playfair Display). Картинки — CSS/SVG/canvas-графика или https://picsum.photos/… с alt.
+Обязательно: CSS-переменные для цветов и отступов, шаг 8 px, clamp() для заголовков, max-width контейнера (не width), страница прокручивается (никакого body{height:100vh;display:flex}), адаптив до 360 px с бургер-меню, видимый фокус, hover, плавная прокрутка к якорям, аккуратные появления при скролле (с учётом prefers-reduced-motion), контраст WCAG AA.
+Не обрывай код: документ целиком до </html>.
+
+После кода — блок «На ревью»: 3–5 конкретных вопросов, по которым тебе важно её мнение (например: «главный экран — оставить такой масштаб заголовка?»). Она ответит правками, и ты выдашь весь обновлённый сайт.`},
 {id:"code",name:"CSS и код",cmd:"код",len:"m",desc:"CSS/HTML/JS для Webflow с пояснением, куда вставить",
  trig:"\\bcss\\b|\\bhtml\\b|\\bjs\\b|javascript|custom code|кастомный код|вставить код|скрипт для сайта|сделай css",
  prompt:`Пиши рабочий современный код: flex и grid, gap, clamp(), CSS-переменные. Без лишних библиотек.
@@ -1439,6 +1450,32 @@ function handsUI(){
 }
 const HANDS_OFF="Для этого мне нужны «руки» — маленький помощник на компьютере. Запусти **1-hands-ON.bat** в папке Crowley-hands и обнови окно (F5).";
 
+/* ---------- исследование перед сайтом: аналоги + гайды ---------- */
+async function siteResearch(text,history,prog,signal){
+  if(isSecretText(text)||S.secretChat)throw new Error("в запросе есть секретное — в интернет не хожу");
+  if(!await HANDS.check())throw new Error("не запущены «руки»");
+  prog("Исследую: придумываю, что искать…",5);
+  const convo=history.slice(-10).map(m=>(m.role==="user"?"Она: ":"Ты: ")+String(m.content||"").replace(/```[\s\S]*?```/g,"[код]").slice(0,700)).join("\n");
+  let qs=[];
+  if(cloudReady()){try{let out="";const p=CLOUD.has("gemini")&&CLOUD.model("gemini")?"gemini":"groq";
+    await CLOUD.chat(p,{system:"Ты помогаешь веб-дизайнеру исследовать нишу перед созданием сайта. Ответь ТОЛЬКО 4 строками — 4 поисковых запроса на английском, без нумерации: 2 запроса на лучшие сайты-аналоги в этой нише (examples, inspiration, awwwards), 1 на структуру/контент такого сайта, 1 на конверсию лендинга этой ниши.",messages:[{role:"user",content:"Переписка о проекте:\n"+convo+"\n\nЗадача: "+text}],maxTok:200,onToken:t=>out+=t,signal});
+    qs=out.split("\n").map(x=>x.replace(/^[\s\d.\-•*"]+|"$/g,"").trim()).filter(x=>x.length>5).slice(0,4);}catch(e){if(signal&&signal.aborted)throw e;}}
+  if(!qs.length){const t=text.replace(/(сделай|создай|напиши|сайт|лендинг|мне|пожалуйста|полностью|готовый)/gi," ").trim().slice(0,80);qs=[t+" website examples",t+" landing page inspiration","landing page structure best practices","high converting landing page guide"];}
+  const sources=[];let ctx="";const seen=new Set();
+  for(let i=0;i<qs.length;i++){
+    if(signal&&signal.aborted)throw new Error("остановлено");
+    prog(`Исследую ${i+1}/${qs.length}: «${qs[i]}»`,10+Math.round(80*i/qs.length));
+    let res=[];try{res=await HANDS.search(qs[i]);}catch(e){continue;}
+    const top=res.filter(r=>!seen.has(r.url)).slice(0,2);top.forEach(r=>seen.add(r.url));
+    const pages=await Promise.all(top.map(r=>HANDS.read(r.url).catch(()=>null)));
+    top.forEach((r,j)=>{sources.push({title:r.title,url:r.url});const pg=pages[j];ctx+=`\n\n[${sources.length}] ${r.title} — ${r.url}\n${r.snippet||""}${pg&&pg.text?"\n"+pg.text.slice(0,1500):""}`;});
+  }
+  prog("Исследование готово, собираю сайт…",95);
+  if(!sources.length)throw new Error("поиск ничего не дал");
+  return {ctx:`ИССЛЕДОВАНИЕ (сайты-аналоги и гайды, найдено сейчас):${ctx}
+
+Как пользоваться исследованием: перед кодом дай блок «Что я изучил» — 4–6 пунктов: какие приёмы у сильных сайтов этой ниши и из гайдов ты берёшь и почему, со ссылками [n]. Потом «План сайта» — список секций по порядку. Потом сам сайт.`,sources};
+}
 async function webContext(skill,text,status){
   if(isSecretText(text)||S.secretChat)throw new Error("В запросе есть секретное (или включён секретный чат) — в интернет это не отправляю.");
   if(!await HANDS.check())throw new Error(HANDS_OFF);
@@ -1681,7 +1718,7 @@ const CLOUD={
       if(vis&&i===lastImg)return {role,content:[{type:"text",text:m.content||"Посмотри на изображение."}].concat(m.images.slice(0,3).map(b=>({type:"image_url",image_url:{url:"data:image/jpeg;base64,"+b}})))};
       return {role,content:m.content||(m.images&&m.images.length?"(картинка — я её не вижу)":"")};}).filter(m=>m.content&&m.content.length));
     const extra=/gpt-oss/.test(model2)?{reasoning_effort:"low",include_reasoning:false}:/qwen3/.test(model2)?{reasoning_format:"hidden"}:{};
-    const body=x=>JSON.stringify(Object.assign({model:model2,messages:msgs,stream:true,temperature:0.8,max_completion_tokens:maxTok+(/gpt-oss|qwen3/.test(model2)?1500:0)},x));
+    const body=x=>JSON.stringify(Object.assign({model:model2,messages:msgs,stream:true,temperature:0.8,max_completion_tokens:Math.min(maxTok,8000)+(/gpt-oss|qwen3/.test(model2)?1500:0)},x));
     const url=this.b("groq")+"/chat/completions";const h={"Content-Type":"application/json",Authorization:"Bearer "+k};
     let r=await this.req(url,{method:"POST",headers:h,body:body(extra),signal});
     if(r.status===400&&Object.keys(extra).length)r=await this.req(url,{method:"POST",headers:h,body:body({}),signal});
