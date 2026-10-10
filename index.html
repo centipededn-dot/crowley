@@ -2290,7 +2290,7 @@ function wakeUI(state,txt){const b=$("#wakeBtn");if(b){b.classList.toggle("on",!
 function wakeEndCmd(){wakeCmdMode=false;clearTimeout(wakeCmdT);avListening=false;avApply();wakeUI();}
 function wakeFlushSoon(ms){clearTimeout(wakeCmdT);wakeCmdT=setTimeout(()=>{const cmd=wakeBuf.trim();wakeBuf="";wakeEndCmd();if(cmd)voiceCommand(cmd);},ms);}
 function wakeStart(){
-  if(!SR||!S.voice.wake||wakeRec||listening||wakePaused)return;
+  if(window.__passive||!SR||!S.voice.wake||wakeRec||listening||wakePaused)return;
   const r=new SR();r.lang=S.voice.mic||"ru-RU";r.continuous=true;r.interimResults=true;
   r.onresult=e=>{
     wakeFails=0;
@@ -2395,7 +2395,11 @@ function syncDoc(){
 }
 function syncMerge(r,force){
   const m=S.sync.meta;let changed={};
-  for(const k in (r.sections||{})){const rs=r.sections[k];if(SYNC_APPLY[k]&&rs&&(force||(rs.t||0)>(m.t[k]||0))){SYNC_APPLY[k](JSON.parse(JSON.stringify(rs.data||{})));m.t[k]=Math.max(rs.t||0,force?0:0);m.h[k]=hsh(JSON.stringify(SYNC_SECT[k]()||{}));changed[k]=1;}}
+  const stab=v=>Array.isArray(v)?"["+v.map(stab).join(",")+"]":(v&&typeof v==="object")?"{"+Object.keys(v).sort().map(x=>JSON.stringify(x)+":"+stab(v[x])).join(",")+"}":JSON.stringify(v);
+  for(const k in (r.sections||{})){const rs=r.sections[k];
+    if(SYNC_APPLY[k]&&rs&&(force||(rs.t||0)>(m.t[k]||0))){SYNC_APPLY[k](JSON.parse(JSON.stringify(rs.data||{})));const loc=SYNC_SECT[k]()||{};m.h[k]=hsh(JSON.stringify(loc));
+      m.t[k]=stab(loc)===stab(rs.data||{})?(rs.t||0):Date.now();changed[k]=1;}   // если у нас осталось что-то, чего нет у другого (ключи) — отдаём это обратно
+    else if(k==="cloud"&&rs&&rs.data){for(const x of ["geminiKey","groqKey"])if(!S.cloud[x]&&rs.data[x]){S.cloud[x]=rs.data[x];changed.cloud=1;}}}   // ключи подтягиваем всегда, если своих нет
   for(const k of CS_SYNC){const rv=(r.cs||{})[k];if(rv==null)continue;const lv=S.cs[k];
     const newer=typeof rv==="number"?(!lv||rv>lv):(dayNum(rv)>dayNum(lv));if(newer){S.cs[k]=rv;changed.cs=1;}}
   const tomb=Object.assign({},r.tomb||{});for(const id in m.tomb)tomb[id]=Math.max(tomb[id]||0,m.tomb[id]);m.tomb=tomb;
@@ -2436,6 +2440,7 @@ let syncing=false,syncTimer=null,syncDirty=false;
 const canon=d=>JSON.stringify(Object.assign({},d,{at:0,from:""}));
 function freshDevice(){return !S.sync.last&&!S.memory.length&&!S.log.length&&!S.chat.some(m=>m.role==="user")&&!S.cloud.geminiKey&&!S.cloud.groqKey;}
 async function syncNow(manual){
+  if(window.__passive)return false;
   if(!GH.ok()||syncing)return false;if(!navigator.onLine){syncUI("нет интернета");return false;}
   syncing=true;syncUI("синхронизирую…");
   try{
@@ -2504,8 +2509,11 @@ async function publishSite(){
       const r=await fetch(api+"/contents/"+encodeURIComponent(f.name),{method:"PUT",headers:Object.assign({"Content-Type":"application/json"},GH.hdr()),body:JSON.stringify(body)});
       if(!r.ok)throw await GH.err(r);}
     st.textContent="Включаю сайт…";
-    const pg=await fetch(api+"/pages",{method:"POST",headers:Object.assign({"Content-Type":"application/json"},GH.hdr()),body:JSON.stringify({source:{branch:"main",path:"/"}})});
-    if(!pg.ok&&pg.status!==409&&pg.status!==422){const e=await GH.err(pg);if(pg.status===403||pg.status===404)throw new Error("у ключа нет права Pages: Read and write для «"+repo+"»");throw e;}
+    const have=await fetch(api+"/pages",{headers:GH.hdr(),cache:"no-store"}).catch(()=>null);
+    if(!(have&&have.ok)){
+      const pg=await fetch(api+"/pages",{method:"POST",headers:Object.assign({"Content-Type":"application/json"},GH.hdr()),body:JSON.stringify({source:{branch:"main",path:"/"}})});
+      if(!pg.ok&&pg.status!==409&&pg.status!==422){const e=await GH.err(pg);if(pg.status===403||pg.status===404)throw new Error(`файлы выложены, но сайт нужно включить один раз вручную: GitHub → ${repo} → Settings → Pages → Branch: main → Save`);throw e;}
+    }
     s.pages=`https://${s.owner.toLowerCase()}.github.io/${repo}/`;saveLocal();
     st.innerHTML=`Готово! Через 1–2 минуты Кроули откроется по адресу <b>${esc(s.pages)}</b>. Теперь нажми «Подключить планшет».`;avFlashDone();
   }catch(e){st.textContent="Не получилось: "+(e.message||e);}
@@ -2515,6 +2523,22 @@ $("#syncQrBtn").onclick=()=>showQr().catch(e=>toast("Не получилось �
 $("#qrCopy").onclick=()=>{const v=$("#qrLink");navigator.clipboard.writeText(v.value).then(()=>toast("Ссылка скопирована"),()=>{v.select();});};
 if(!S.sync)S.sync={};if(!S.sync.device)S.sync.device=(HOSTED?"планшет-":"компьютер-")+uid().slice(-4);
 syncFromHash();window.addEventListener("hashchange",syncFromHash);
+
+/* ---------- одно окно за раз: второе окно Кроули не затирает память первого ---------- */
+(function(){
+  const OWN="crowley-owner",ME=uid();
+  const claim=()=>{try{localStorage.setItem(OWN,JSON.stringify({id:ME,t:Date.now()}));}catch(e){}};
+  function goPassive(){
+    if(window.__passive)return;window.__passive=true;saveBlocked=true;try{wakeStop();}catch(e){}
+    document.querySelectorAll("dialog[open]").forEach(x=>{try{x.close();}catch(e){}});
+    const d=document.createElement("dialog");d.id="passiveBox";d.className="dlg";
+    d.innerHTML='<div style="max-width:360px;text-align:center;padding:8px"><h3 style="margin:0 0 8px">Кроули открыт в другом окне</h3><p class="muted" style="margin:0 0 14px">Чтобы память не перепуталась, работает только одно окно. Это окно на паузе.</p><button class="btn" id="passiveHere">Работать здесь</button></div>';
+    d.addEventListener("cancel",e=>e.preventDefault());
+    document.body.appendChild(d);d.showModal();$("#passiveHere").onclick=()=>location.reload();
+  }
+  claim();setInterval(()=>{if(!window.__passive)claim();},4000);
+  window.addEventListener("storage",e=>{if(e.key!==OWN||!e.newValue)return;try{if(JSON.parse(e.newValue).id!==ME)goPassive();}catch(x){}});
+})();
 
 /* ---------- утро: короткая сводка в начале дня ---------- */
 function morningBrief(){
