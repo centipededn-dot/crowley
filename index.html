@@ -830,6 +830,7 @@ input[type=range]{accent-color:var(--accent)}
           <div class="row"><div class="field"><label for="syOwner">Имя пользователя GitHub</label><input class="inp" id="syOwner" autocomplete="off"></div>
           <div class="field"><label for="syRepo">Закрытое хранилище</label><input class="inp" id="syRepo" placeholder="crowley-data" autocomplete="off"></div></div>
           <div class="field"><label for="syToken">Ключ доступа GitHub</label><input class="inp" id="syToken" type="password" placeholder="github_pat_…" autocomplete="off"></div>
+          <div class="field" id="syLinkBox"><label for="syLink">…или вставь ссылку подключения</label><div class="row"><input class="inp" id="syLink" placeholder="https://…github.io/crowley/#connect=…" autocomplete="off"><button class="btn line" id="syLinkGo" type="button">Подключить по ссылке</button></div></div>
           <p class="muted sync-state" id="syncState" style="margin-top:10px"></p>
           <div class="row" style="margin-top:12px;flex-wrap:wrap"><button class="btn" id="sySave">Подключить</button><button class="btn line" id="syncNowBtn">Синхронизировать</button><button class="btn line" id="syncQrBtn">Подключить планшет</button></div>
           <div class="field" id="siteBox"><label>Кроули для планшета (сайт)</label><p class="muted" id="siteState" style="margin:0">Выложу страницу Кроули в твоё открытое хранилище <b>crowley</b> на GitHub — без личных данных. Нужны запущенные «руки».</p>
@@ -2476,10 +2477,20 @@ setInterval(()=>{if(!document.hidden)syncNow();},90000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)syncNow();else if(syncDirty)syncNow();});
 window.addEventListener("online",()=>syncNow());
 // connect link from QR: #connect=...
+function syncConnect(code,fromHash){
+  try{const j=JSON.parse(b64d(code.replace(/-/g,"+").replace(/_/g,"/")));if(!j.o||!j.r||!j.t)throw 0;
+    const same=S.sync&&S.sync.token===j.t&&S.sync.owner===j.o&&S.sync.repo===j.r;
+    S.sync=Object.assign(S.sync||{},{owner:j.o,repo:j.r,token:j.t,pages:j.p||""});saveLocal();
+    if(!same){toast("Подключаю к твоему Кроули…");setTimeout(()=>syncNow(true),300);}else syncNow();
+    try{syncUI();$("#syOwner").value=j.o;$("#syRepo").value=j.r;$("#syToken").value=j.t;}catch(e){}
+    return true;}catch(e){toast("Ссылка подключения повреждена");return false;}
+}
 function syncFromHash(){
   const m=location.hash.match(/^#connect=([A-Za-z0-9_\-]+)/);if(!m)return false;
-  try{const j=JSON.parse(b64d(m[1].replace(/-/g,"+").replace(/_/g,"/")));S.sync=Object.assign(S.sync||{},{owner:j.o,repo:j.r,token:j.t,pages:j.p||""});saveLocal();
-    history.replaceState(null,"",location.pathname+location.search);toast("Подключаю к твоему Кроули…");setTimeout(()=>syncNow(true),300);return true;}catch(e){toast("Ссылка подключения повреждена");return false;}
+  // На планшете ссылку не стираем: если сейчас «Добавить на экран», иконка унесёт её с собой и подключится сама
+  const standalone=(window.matchMedia&&matchMedia("(display-mode: standalone)").matches)||navigator.standalone;
+  if(!HOSTED||standalone)history.replaceState(null,"",location.pathname+location.search);
+  return syncConnect(m[1],true);
 }
 async function showQr(){
   const s=S.sync;const pages=(s.pages||`https://${s.owner.toLowerCase()}.github.io/crowley/`).replace(/\/?$/,"/");
@@ -2495,6 +2506,7 @@ function fillSync(){const s=S.sync||{};$("#syOwner").value=s.owner||"";$("#syRep
 $("#sySave").onclick=async()=>{S.sync=Object.assign(S.sync||{},{owner:$("#syOwner").value.trim().replace(/^@/,""),repo:$("#syRepo").value.trim()||"crowley-data",token:$("#syToken").value.trim()});saveLocal();
   if(!GH.ok()){toast("Заполни все три поля");return;}const ok=await syncNow(true);if(ok)avFlashDone();};
 $("#syncNowBtn").onclick=()=>syncNow(true);
+$("#syLinkGo").onclick=()=>{const v=$("#syLink").value.trim();const m=v.match(/connect=([A-Za-z0-9_\-]+)/);if(!m){toast("Это не ссылка подключения");return;}if(syncConnect(m[1])){$("#syLink").value="";}};
 async function publishSite(){
   const s=S.sync;if(!GH.ok()){toast("Сначала подключи синхронизацию");return;}
   const st=$("#siteState");const repo=s.siteRepo||"crowley";const api=(s.api||"https://api.github.com")+`/repos/${encodeURIComponent(s.owner)}/${encodeURIComponent(repo)}`;
