@@ -486,6 +486,7 @@ td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
 #lockChat[aria-pressed="true"]{color:var(--gold,#C9A25E);border-color:currentColor}
 input[type=range]{accent-color:var(--accent)}
 :root[data-theme="crowley"] input[type=range]{accent-color:var(--gold)}
+.genbar{height:3px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:10px}.genbar i{display:block;height:100%;background:var(--accent,#b3283c);transition:width .3s}.genbar.idle i{width:30%;animation:genidle 1.2s ease-in-out infinite}@keyframes genidle{0%{transform:translateX(-100%)}100%{transform:translateX(340%)}}.genlbl{font-size:11px;opacity:.55;margin-top:4px}
 </style>
 </head>
 <body>
@@ -1019,6 +1020,7 @@ function systemPrompt(ctx){
 Делай это только для действительно важного, не в каждом ответе.
 5. Когда анализируешь картинки макетов, будь конкретен: называй элементы, примерные размеры и цвета.
 6. Ты не умеешь сам отправлять письма, открывать сайты и файлы. Не притворяйся, что сделал это. Для интернета есть команда /найди, для картинок — вкладка «Мастерская».
+7. Ты работаешь ТОЛЬКО пока пишешь этот ответ. В фоне ты ничего не делаешь, сам потом ничего не присылаешь и не можешь «генерировать несколько минут». Никогда не пиши «пришлю позже», «сейчас генерирую», «подожди пару минут». Если просят код или текст — выдай результат прямо в этом ответе; если задача слишком большая, предложи разбить её на части и сделай первую часть сразу.
 Пример хорошего короткого ответа. Она: «как сделать кнопку заметнее?» Ты: «Дай ей акцентный цвет и больше воздуха: паддинг 16×28 вместо 10×16. Показать на твоём макете?»`;
   const about=ctx.cloud?(st.about||"").split("\n").filter(l=>!isSecretText(l)).join("\n"):st.about;
   if(about)p+="\n\nО ней и её работе:\n"+about;
@@ -1188,7 +1190,7 @@ async function send(textOverride,opts){
   const um={role:"user",content:text||"Посмотри на изображение.",thumbs,_imgs:imgs};
   S.chat.push(um);addMsg(um);
   const am={role:"assistant",content:"",fromVoice};if(skill)am.skill=skill.name;
-  const bubble=addMsg(am);bubble.innerHTML='<span class="typing"><span></span><span></span><span></span></span>';
+  const bubble=addMsg(am);bubble.innerHTML='<span class="typing"><span></span><span></span><span></span></span><div class="genbar idle"><i></i></div><div class="genlbl">думает…</div>';
   const wantLong=/подробн|распиши|детальн|развёрнут|развернут|по шагам|пошагов/i.test(text);
   const lenLevel=wantLong?"long":(S.settings.len||"short");
   const numPredict=Math.max(skill?LEN_TOK[skill.len||"m"]:0,{short:300,normal:650,long:1700}[lenLevel]);
@@ -1201,7 +1203,7 @@ async function send(textOverride,opts){
     if(skill&&skill.web){const w=await webContext(skill,pick.text||text,s=>{bubble.innerHTML='<span class="muted">'+esc(s)+'</span>';});extra=w.ctx;am.sources=w.sources;}
     const rt=route(text,imgs,skill,history,screenImg);let lastErr=null;
     if(rt.secret){um.secret=true;am.secret=true;}
-    const onToken=t=>{const near=msgsEl.scrollHeight-msgsEl.scrollTop-msgsEl.clientHeight<120;am.content+=t;bubble.innerHTML=md(splitLearn(am.content).clean);if(near)msgsEl.scrollTop=msgsEl.scrollHeight;};
+    const onToken=t=>{const near=msgsEl.scrollHeight-msgsEl.scrollTop-msgsEl.clientHeight<120;am.content+=t;const pc=Math.min(96,Math.round(am.content.length/(numPredict*3.2)*100));const w=am.content.trim().split(/\s+/).length;bubble.innerHTML=md(splitLearn(am.content).clean)+`<div class="genbar" title="Кроули пишет ответ"><i style="width:${pc}%"></i></div><div class="genlbl">пишет… ${w} ${plural(w,'слово','слова','слов')}</div>`;if(near)msgsEl.scrollTop=msgsEl.scrollHeight;};
     for(const step of rt.order){
       am.content="";
       try{
@@ -1215,6 +1217,8 @@ async function send(textOverride,opts){
     if(lastErr)throw lastErr;
   }catch(e){if(signal.aborted){am.stopped=true;}else am.content=(e.message===HANDS_OFF)?HANDS_OFF:/руки|поиск|search|read|fetch|секретное/i.test(String(e.message))&&skill&&skill.web?"Не получилось сходить в интернет: "+(e.message||e):"Не получилось получить ответ. "+(e.message||e)+"\n\n"+(triedCloud?"Облако тоже не ответило. ":"")+"Проверь, что Ollama запущена, и попробуй ещё раз.";}
   if(am.stopped){am.content=(am.content.trim()?am.content.trim()+" …":"")+"\n\n_(остановлено)_";}
+  if(!am.stopped&&/(пришл|отправл|скин)\S*[^.!?\n]{0,40}(позже|потом|через|как только)|через (несколько|пару) минут|я (сейчас )?(генерирую|работаю над)|пожалуйста,? подожди/i.test(am.content)&&!/```/.test(am.content))
+    am.content+="\n\nℹ️ На самом деле в фоне я ничего не делаю — работаю, только пока пишу ответ. Напиши «давай сейчас», и я выдам результат сразу.";
   S.chat.push(am);
   // re-render last bubble with learn chips
   bubble.parentElement.remove();const nb=addMsg(am);voiceReply(am,nb.parentElement);
